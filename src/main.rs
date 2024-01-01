@@ -6,13 +6,14 @@ use std::{
         Arc, RwLock,
     },
     thread::{self},
+    time::{Duration, Instant},
 };
 
 mod cpu;
 
 use cpu::{Cpu, Memory};
 use eframe::{
-    egui::{self, Sense},
+    egui::{self, Key, Sense},
     epaint::{pos2, Pos2, Rect, Rounding, Stroke},
 };
 use egui::{Color32, Frame, Vec2};
@@ -39,16 +40,28 @@ impl Game {
         let screen = Arc::clone(&self.screen);
         let _ = thread::spawn(move || {
             let mut memory = Memory::new();
-
             memory.load_file(path.as_path()).unwrap();
+
             let mut cpu = Cpu::new(memory, screen);
+
+            let tick = Duration::new(1, 0) / 60;
             loop {
+                let instant = Instant::now();
                 if let Ok(event) = rc.try_recv() {
                     if event == Event::Quit {
                         break;
                     }
+                    if let Event::KeyEvent(value) = event {
+                        let value = value as u16;
+                        let value = value.to_be_bytes();
+                        cpu.process_input(&value)
+                    }
                 }
+
                 cpu.tick();
+                let elapsed = instant.elapsed();
+                let sleep = tick - elapsed;
+                thread::sleep(sleep);
             }
         });
         self.sender = Some(sender);
@@ -91,6 +104,7 @@ impl Screen {
 #[derive(Debug, Eq, PartialEq)]
 pub enum Event {
     Draw(u32, u32, Color32),
+    KeyEvent(u16),
     Noop,
     Quit,
 }
@@ -128,7 +142,7 @@ impl eframe::App for MyApp {
                     for _ in 0..256 {
                         for _ in 0..256 {
                             let screen = self.game.screen.read().unwrap();
-                            let color = screen.pixels.get(i).unwrap();
+                            let color = screen.pixels.get(i).unwrap_or(&Color32::TEMPORARY_COLOR);
                             painter.rect(r, Rounding::ZERO, *color, Stroke::NONE);
 
                             // move rectangles top left and bottom right point
@@ -145,7 +159,39 @@ impl eframe::App for MyApp {
                     }
                     ctx.request_repaint();
                 });
+                ctx.input(|i| {
+                    let value = i.events.iter().map(get_key).next().unwrap_or(0);
+                    if let Some(sender) = &self.game.sender {
+                        sender.send(Event::KeyEvent(value)).unwrap();
+                    };
+                })
             });
+    }
+}
+
+fn get_key(event: &egui::Event) -> u16 {
+    if let egui::Event::Key { key, .. } = event {
+        match key {
+            Key::Num0 => 0x01,
+            Key::Num1 => 0x02,
+            Key::Num2 => 0x04,
+            Key::Num3 => 0x08,
+            Key::Num4 => 0x10,
+            Key::Num5 => 0x20,
+            Key::Num6 => 0x40,
+            Key::Num7 => 0x80,
+            Key::Num8 => 0x100,
+            Key::Num9 => 0x200,
+            Key::A => 0x400,
+            Key::B => 0x800,
+            Key::C => 0x1000,
+            Key::D => 0x2000,
+            Key::E => 0x4000,
+            Key::F => 0x8000,
+            _ => 0x00,
+        }
+    } else {
+        0x00
     }
 }
 

@@ -1,10 +1,10 @@
 use std::{
     fs::File,
     io::Read,
+    ops::{Index, IndexMut},
     path::Path,
+    slice::SliceIndex,
     sync::{Arc, RwLock},
-    thread,
-    time::{Duration, Instant},
 };
 
 use crate::Screen;
@@ -23,22 +23,15 @@ pub const AUDIO: usize = 6;
 #[derive(Debug)]
 pub struct Cpu {
     memory: Memory,
-    tick: Duration,
     screen: Arc<RwLock<Screen>>,
 }
 
 impl Cpu {
     pub fn new(memory: Memory, screen: Arc<RwLock<Screen>>) -> Self {
-        let tick = Duration::new(1, 0) / 60;
-        Self {
-            memory,
-            tick,
-            screen,
-        }
+        Self { memory, screen }
     }
 
     pub fn tick(&mut self) {
-        let instant = Instant::now();
         let mut pc = self.memory.get_value_at(PC);
 
         for _ in 0..65536 {
@@ -51,9 +44,11 @@ impl Cpu {
             .write()
             .unwrap()
             .update(self.memory.get_video_data());
-        let elapsed = instant.elapsed();
-        let sleep = self.tick - elapsed;
-        thread::sleep(sleep);
+    }
+
+    pub(crate) fn process_input(&mut self, value: &[u8]) {
+        self.memory[INPUT] = value[0];
+        self.memory[INPUT + 1] = value[1];
     }
 }
 
@@ -70,19 +65,31 @@ impl Memory {
     }
 
     fn get_value_at(&self, index: usize) -> usize {
-        (self.data[index] as usize) << 16
-            | (self.data[index + 1] as usize) << 8
-            | self.data[index + 2] as usize
+        (self[index] as usize) << 16 | (self[index + 1] as usize) << 8 | self[index + 2] as usize
     }
 
     fn get_video_data(&self) -> &[u8] {
-        let offset = (self.data[VIDEO] as usize) << 16;
-        &self.data[offset..offset + BANK]
+        let offset = (self[VIDEO] as usize) << 16;
+        &self[offset..offset + BANK]
     }
 
     pub fn load_file(&mut self, path: &Path) -> anyhow::Result<()> {
         let mut file = File::open(path)?;
         let _ = file.read(&mut self.data[..MEMORY])?;
         Ok(())
+    }
+}
+
+impl<T: SliceIndex<[u8]>> Index<T> for Memory {
+    type Output = T::Output;
+
+    fn index(&self, index: T) -> &Self::Output {
+        &self.data[index]
+    }
+}
+
+impl<T: SliceIndex<[u8]>> IndexMut<T> for Memory {
+    fn index_mut(&mut self, index: T) -> &mut Self::Output {
+        &mut self.data[index]
     }
 }
