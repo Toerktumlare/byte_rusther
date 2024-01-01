@@ -8,5 +8,4 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.76"
 eframe = "0.24.1"
-rand = "0.8.5"
 thiserror = "1.0.51"
