@@ -13,12 +13,12 @@ pub const PAGE: usize = 0x100;
 pub const BANK: usize = PAGE * 256;
 pub const MEMORY: usize = BANK * 256;
 pub const FULL_MEMORY: usize = MEMORY + 8;
-pub const SAMPLE_RATE: usize = PAGE * 60;
+// pub const SAMPLE_RATE: usize = PAGE * 60;
 
 pub const INPUT: usize = 0;
 pub const PC: usize = 2;
 pub const VIDEO: usize = 5;
-pub const AUDIO: usize = 6;
+// pub const AUDIO: usize = 6;
 
 #[derive(Debug)]
 pub struct Cpu {

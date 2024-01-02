@@ -25,8 +25,8 @@ struct Game {
 }
 
 impl Game {
-    fn new(x_size: usize, y_size: usize) -> Self {
-        let mut screen = Screen::new(x_size, y_size);
+    fn new() -> Self {
+        let mut screen = Screen::new();
         screen.fill(Color32::LIGHT_BLUE);
         Self {
             screen: Arc::new(RwLock::new(screen)),
@@ -34,11 +34,10 @@ impl Game {
         }
     }
 
-    fn start(&mut self, tx: &SyncSender<Event>, path: PathBuf) {
+    fn start(&mut self, path: PathBuf) {
         let (sender, rc) = mpsc::sync_channel(0);
-        let _tx = tx.clone();
         let screen = Arc::clone(&self.screen);
-        let _ = thread::spawn(move || {
+        thread::spawn(move || {
             let mut memory = Memory::new();
             memory.load_file(path.as_path()).unwrap();
 
@@ -47,15 +46,9 @@ impl Game {
             let tick = Duration::new(1, 0) / 60;
             loop {
                 let instant = Instant::now();
-                if let Ok(event) = rc.try_recv() {
-                    if event == Event::Quit {
-                        break;
-                    }
-                    if let Event::KeyEvent(value) = event {
-                        let value = value as u16;
-                        let value = value.to_be_bytes();
-                        cpu.process_input(&value)
-                    }
+                if let Ok(Event::KeyEvent(value)) = rc.try_recv() {
+                    let value = value.to_be_bytes();
+                    cpu.process_input(&value)
                 }
 
                 cpu.tick();
@@ -66,6 +59,13 @@ impl Game {
         });
         self.sender = Some(sender);
     }
+
+    fn send(&self, event: Event) -> anyhow::Result<()> {
+        if let Some(sender) = &self.sender {
+            sender.send(event)?;
+        };
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -74,8 +74,7 @@ struct Screen {
 }
 
 impl Screen {
-    fn new(x: usize, y: usize) -> Self {
-        let _s_size = Vec2::new(x as f32, y as f32);
+    fn new() -> Self {
         let v = &[Color32::BLACK; 0xFFFF];
         Self { pixels: v.to_vec() }
     }
@@ -105,25 +104,22 @@ impl Screen {
 pub enum Event {
     Draw(u32, u32, Color32),
     KeyEvent(u16),
-    Noop,
-    Quit,
 }
 
 #[derive(Debug)]
-struct MyApp {
+struct MainApp {
     game: Game,
 }
 
-impl MyApp {
-    fn new(x_size: usize, y_size: usize, path: PathBuf) -> Self {
-        let (tx, _) = mpsc::sync_channel(0);
-        let mut game = Game::new(x_size, y_size);
-        game.start(&tx, path);
+impl MainApp {
+    fn new(path: PathBuf) -> Self {
+        let mut game = Game::new();
+        game.start(path);
         Self { game }
     }
 }
 
-impl eframe::App for MyApp {
+impl eframe::App for MainApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default()
             .frame(Frame::none())
@@ -161,9 +157,9 @@ impl eframe::App for MyApp {
                 });
                 ctx.input(|i| {
                     let value = i.events.iter().map(get_key).next().unwrap_or(0);
-                    if let Some(sender) = &self.game.sender {
-                        sender.send(Event::KeyEvent(value)).unwrap();
-                    };
+                    self.game.send(Event::KeyEvent(value)).unwrap_or_else(|_| {
+                        println!("Could not send key event to game loop");
+                    });
                 })
             });
     }
@@ -171,7 +167,7 @@ impl eframe::App for MyApp {
 
 fn get_key(event: &egui::Event) -> u16 {
     if let egui::Event::Key { key, .. } = event {
-        match key {
+        return match key {
             Key::Num0 => 0x01,
             Key::Num1 => 0x02,
             Key::Num2 => 0x04,
@@ -189,10 +185,9 @@ fn get_key(event: &egui::Event) -> u16 {
             Key::E => 0x4000,
             Key::F => 0x8000,
             _ => 0x00,
-        }
-    } else {
-        0x00
+        };
     }
+    0x00
 }
 
 fn main() -> Result<(), eframe::Error> {
@@ -210,6 +205,6 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "ByteRusther",
         options,
-        Box::new(|_cc| Box::new(MyApp::new(128, 128, path))),
+        Box::new(|_cc| Box::new(MainApp::new(path))),
     )
 }
